@@ -101,6 +101,7 @@ def get_config():
 
     # ensure it's a supported chain
     if parsed_config.chain.blockchain_type != BlockchainType.bitcoin and \
+                    parsed_config.chain.blockchain_type != BlockchainType.bsv and \
                     parsed_config.chain.blockchain_type != BlockchainType.ethereum and \
                     parsed_config.chain.blockchain_type != BlockchainType.mock:
         raise UnknownChainError(parsed_config.chain.name)
