@@ -33,7 +33,7 @@ class BitcoinTransactionCostConstants(object):
 def initialize_signer(app_config):
     path_to_secret = os.path.join(app_config.usb_name, app_config.key_file)
 
-    if app_config.chain.blockchain_type == BlockchainType.bitcoin:
+    if app_config.chain.blockchain_type == BlockchainType.bsv:
         signer = BitcoinSigner(bitcoin_chain=app_config.chain)
     elif app_config.chain == Chain.mockchain:
         signer = None

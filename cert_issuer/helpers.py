@@ -94,9 +94,9 @@ def copy_output(certificates_metadata):
 
 
 def to_pycoin_chain(chain):
-    if chain == Chain.bitcoin_regtest or chain == Chain.bitcoin_testnet:
+    if chain == Chain.bitcoin_regtest or chain == Chain.bitcoin_testnet or chain == Chain.bsv_testnet:
         return 'XTN'
-    elif chain == Chain.bitcoin_mainnet:
+    elif chain == Chain.bitcoin_mainnet or chain == Chain.bsv_mainnet:
         return 'BTC'
     else:
         raise UnknownChainError(chain.name)

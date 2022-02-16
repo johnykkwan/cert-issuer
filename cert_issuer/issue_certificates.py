@@ -30,6 +30,9 @@ def main(app_config):
     if chain == Chain.ethereum_mainnet or chain == Chain.ethereum_ropsten:
         from cert_issuer.blockchain_handlers import ethereum
         certificate_batch_handler, transaction_handler, connector = ethereum.instantiate_blockchain_handlers(app_config)
+    elif chain == Chain.bsv_mainnet or chain == Chain.bsv_testnet:
+        from cert_issuer.blockchain_handlers import bsv 
+        certificate_batch_handler, transaction_handler, connector = bsv.instantiate_blockchain_handlers(app_config)
     else:
         from cert_issuer.blockchain_handlers import bitcoin
         certificate_batch_handler, transaction_handler, connector = bitcoin.instantiate_blockchain_handlers(app_config)

@@ -38,6 +38,49 @@ def to_hex(transaction):
     tx_as_hex = b2h(s.getvalue())
     return tx_as_hex
 
+class WhatsOnChainProvider(object):
+    """
+    Note that this needs an API token
+    """
+
+    def __init__(self, base_url, api_token=None):
+        self.base_url = base_url
+        self.api_token = api_token
+
+    def broadcast_tx(self, tx):
+        hextx = to_hex(tx)
+        broadcast_url = self.base_url + '/txs/push'
+        if self.api_token:
+            broadcast_url += '?token=' + self.api_token
+        response = requests.post(broadcast_url, json={'tx': hextx})
+        if int(response.status_code) == 201:
+            tx_id = response.json().get('tx', None)
+            tx_hash = tx_id.get('hash', None)
+            return tx_hash
+        logging.error('Error broadcasting the transaction through the Blockcypher API. Error msg: %s', response.text)
+        raise BroadcastError(response.text)
+
+    def spendables_for_address(self, address):
+        """
+        Return a list of Spendable objects for the
+        given bitcoin address.
+        """
+        logging.info('trying to get spendables from blockcypher')
+        spendables = []
+        url_append = '?unspentOnly=true&includeScript=true'
+        if self.api_token:
+            url_append += '&token=' + self.api_token
+        url = self.base_url + '/addrs/' + address + url_append
+        response = requests.get(url)
+        if int(response.status_code) == 200:
+            for txn in response.json().get('txrefs', []):
+                coin_value = txn.get('value')
+                script = h2b(txn.get('script'))
+                previous_hash = h2b_rev(txn.get('tx_hash'))
+                previous_index = txn.get('tx_output_n')
+                spendables.append(Spendable(coin_value, script, previous_hash, previous_index))
+        return spendables
+
 class BlockcypherProvider(object):
     """
     Note that this needs an API token
@@ -124,7 +167,6 @@ class BitcoindConnector(object):
             previous_index = outpoint.n
             spendables.append(Spendable(coin_value, script, previous_hash, previous_index))
         return spendables
-
 
 class ServiceProviderConnector(object):
     @abstractmethod
@@ -250,21 +292,22 @@ connectors = {}
 
 # configure mainnet providers
 provider_list = providers.providers_for_config_string(PYCOIN_BTC_PROVIDERS,
-                                                      helpers.to_pycoin_chain(Chain.bitcoin_mainnet))
+                                                      helpers.to_pycoin_chain(Chain.bsv_mainnet))
+
 provider_list.append(BlockcypherProvider('https://api.blockcypher.com/v1/btc/main', blockcypher_token))
-provider_list.append(InsightProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_mainnet)))
-provider_list.append(ChainSoProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_mainnet)))
-provider_list.append(BlockstreamBroadcaster('https://blockstream.info/api'))
-connectors[Chain.bitcoin_mainnet] = provider_list
+# provider_list.append(InsightProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_mainnet)))
+# provider_list.append(ChainSoProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_mainnet)))
+# provider_list.append(BlockstreamBroadcaster('https://blockstream.info/api'))
+connectors[Chain.bsv_mainnet] = provider_list
 
 # configure testnet providers
 xtn_provider_list = providers.providers_for_config_string(PYCOIN_XTN_PROVIDERS,
-                                                          helpers.to_pycoin_chain(Chain.bitcoin_testnet))
-xtn_provider_list.append(ChainSoProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_testnet)))
-xtn_provider_list.append(BlockcypherProvider('https://api.blockcypher.com/v1/btc/test3', blockcypher_token))
-xtn_provider_list.append(BlockstreamBroadcaster('https://blockstream.info/testnet/api'))
-connectors[Chain.bitcoin_testnet] = xtn_provider_list
+                                                          helpers.to_pycoin_chain(Chain.bsv_testnet))
 
+xtn_provider_list.append(BlockcypherProvider('https://api.blockcypher.com/v1/btc/test3', blockcypher_token))
+# xtn_provider_list.append(ChainSoProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_testnet)))
+# xtn_provider_list.append(BlockstreamBroadcaster('https://blockstream.info/testnet/api'))
+connectors[Chain.bsv_testnet] = xtn_provider_list
 
 def get_providers_for_chain(chain, bitcoind=False):
     if bitcoind:
