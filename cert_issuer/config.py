@@ -114,6 +114,13 @@ def get_config():
             bitcoin_chain_for_python_bitcoinlib = Chain.bitcoin_regtest
         bitcoin.SelectParams(chain_to_bitcoin_network(bitcoin_chain_for_python_bitcoinlib))
 
+    if parsed_config.chain.blockchain_type == BlockchainType.bsv:
+        bitcoin_chain_for_python_bitcoinlib = parsed_config.chain
+        # removed regtest, bsv do not support regtest
+        # if parsed_config.chain == Chain.bitcoin_regtest:
+        #     bitcoin_chain_for_python_bitcoinlib = Chain.bitcoin_regtest
+        bitcoin.SelectParams(chain_to_bitcoin_network(bitcoin_chain_for_python_bitcoinlib))
+
     global CONFIG
     CONFIG = parsed_config
     return parsed_config

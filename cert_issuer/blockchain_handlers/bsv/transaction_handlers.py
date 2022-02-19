@@ -42,6 +42,7 @@ class BitcoinTransactionHandler(TransactionHandler):
         balance = self.connector.get_balance(self.issuing_address)
 
         transaction_cost = self.transaction_creator.estimate_cost_for_certificate_batch(self.tx_cost_constants)
+        logging.info('%s address balance is %d satoshis', self.issuing_address, balance)
         logging.info('Total cost will be %d satoshis', transaction_cost)
 
         if transaction_cost > balance:

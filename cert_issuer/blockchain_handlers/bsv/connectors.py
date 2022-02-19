@@ -49,36 +49,44 @@ class WhatsOnChainProvider(object):
 
     def broadcast_tx(self, tx):
         hextx = to_hex(tx)
-        broadcast_url = self.base_url + '/txs/push'
+        broadcast_url = self.base_url + '/tx/raw'
         if self.api_token:
             broadcast_url += '?token=' + self.api_token
-        response = requests.post(broadcast_url, json={'tx': hextx})
+        response = requests.post(broadcast_url, json={'txhex': hextx})
         if int(response.status_code) == 201:
             tx_id = response.json().get('tx', None)
             tx_hash = tx_id.get('hash', None)
             return tx_hash
-        logging.error('Error broadcasting the transaction through the Blockcypher API. Error msg: %s', response.text)
+        logging.error('Error broadcasting the transaction through the WOC API. Error msg: %s', response.text)
         raise BroadcastError(response.text)
 
     def spendables_for_address(self, address):
         """
         Return a list of Spendable objects for the
         given bitcoin address.
+        https://api.whatsonchain.com/v1/bsv/<main/test>/address/<address>/unspent
+        [{"height":1476535,"tx_pos":0,"tx_hash":"abe71531f26962cfc51f7e5c0ae2af239f346d5cbdbb57285fc7a5f06e10f27e","value":1550},
+        {"height":1476535,"tx_pos":0,"tx_hash":"4058a4c598cbbc7e444780fc9bda09074ba5471d9616b4530acffa08390140a1","value":1550},{"height":1476535,"tx_pos":0,"tx_hash":"5d2ad037404b3d7dac0d3590b779fdf2f4bc6a2c97ce40304c13afed38d986cd","value":1550},{"height":1476535,"tx_pos":0,"tx_hash":"c6a8191b706988908bf39a5aa532caa0f48930aa604ead959b8741649c9eeec7","value":1550},{"height":1476535,"tx_pos":0,"tx_hash":"89d1b1095872fc67c2b00716198699e630eea72a425e52128880d6101b158084","value":1550}]
         """
-        logging.info('trying to get spendables from blockcypher')
+        logging.info('trying to get spendables from WOC')
         spendables = []
-        url_append = '?unspentOnly=true&includeScript=true'
+        url_append = ''
         if self.api_token:
             url_append += '&token=' + self.api_token
-        url = self.base_url + '/addrs/' + address + url_append
+        url = self.base_url + '/address/' + address + '/unspent' + url_append
         response = requests.get(url)
         if int(response.status_code) == 200:
-            for txn in response.json().get('txrefs', []):
+            # logging.info('JSON:: %s', response.json())
+            for txn in response.json():
+                # logging.info('txn: %s', txn)
                 coin_value = txn.get('value')
-                script = h2b(txn.get('script'))
+                # script = h2b(txn.get('script'))
+                script = h2b('')
                 previous_hash = h2b_rev(txn.get('tx_hash'))
-                previous_index = txn.get('tx_output_n')
-                spendables.append(Spendable(coin_value, script, previous_hash, previous_index))
+                previous_index = txn.get('tx_pos')
+                coin = Spendable(coin_value, script, previous_hash, previous_index)
+                # logging.info('Coin:: %s', coin)
+                spendables.append(coin)
         return spendables
 
 class BlockcypherProvider(object):
@@ -294,7 +302,8 @@ connectors = {}
 provider_list = providers.providers_for_config_string(PYCOIN_BTC_PROVIDERS,
                                                       helpers.to_pycoin_chain(Chain.bsv_mainnet))
 
-provider_list.append(BlockcypherProvider('https://api.blockcypher.com/v1/btc/main', blockcypher_token))
+provider_list.append(WhatsOnChainProvider('https://api.whatsonchain.com/v1/bsv/main', blockcypher_token))
+# provider_list.append(BlockcypherProvider('https://api.blockcypher.com/v1/btc/main', blockcypher_token))
 # provider_list.append(InsightProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_mainnet)))
 # provider_list.append(ChainSoProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_mainnet)))
 # provider_list.append(BlockstreamBroadcaster('https://blockstream.info/api'))
@@ -304,7 +313,8 @@ connectors[Chain.bsv_mainnet] = provider_list
 xtn_provider_list = providers.providers_for_config_string(PYCOIN_XTN_PROVIDERS,
                                                           helpers.to_pycoin_chain(Chain.bsv_testnet))
 
-xtn_provider_list.append(BlockcypherProvider('https://api.blockcypher.com/v1/btc/test3', blockcypher_token))
+xtn_provider_list.append(WhatsOnChainProvider('https://api.whatsonchain.com/v1/bsv/test', blockcypher_token))
+# xtn_provider_list.append(BlockcypherProvider('https://api.blockcypher.com/v1/btc/test3', blockcypher_token))
 # xtn_provider_list.append(ChainSoProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_testnet)))
 # xtn_provider_list.append(BlockstreamBroadcaster('https://blockstream.info/testnet/api'))
 connectors[Chain.bsv_testnet] = xtn_provider_list
