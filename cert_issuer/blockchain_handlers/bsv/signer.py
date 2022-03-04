@@ -12,6 +12,11 @@ from cert_issuer.errors import UnverifiedSignatureError, UnableToSignTxError
 from cert_issuer.helpers import to_pycoin_chain
 from cert_issuer.models import Signer
 
+SIGHASH_ALL = 1
+SIGHASH_NONE = 2
+SIGHASH_SINGLE = 3
+SIGHASH_FORKID = 0x40
+SIGHASH_ANYONECANPAY = 0x80
 
 class BitcoinSigner(Signer):
     def __init__(self, bitcoin_chain):
@@ -27,7 +32,10 @@ class BitcoinSigner(Signer):
     def sign_transaction(self, wif, transaction_to_sign):
         secret_exponent = wif_to_secret_exponent(wif, self.allowable_wif_prefixes)
         lookup = build_hash160_lookup([secret_exponent])
-        signed_transaction = transaction_to_sign.sign(lookup)
+        # signed_transaction = transaction_to_sign.sign(lookup)
+        # BSV need SIGHASH_FORKID
+        logging.info(">>> Signing with SIGHASH_FORKID")
+        signed_transaction = transaction_to_sign.sign(lookup, SIGHASH_ALL | SIGHASH_FORKID)
         # Because signing failures silently continue, first check that the inputs are signed
         for input in signed_transaction.txs_in:
             if len(input.script) == 0:

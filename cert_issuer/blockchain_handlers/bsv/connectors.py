@@ -52,6 +52,12 @@ class WhatsOnChainProvider(object):
         broadcast_url = self.base_url + '/tx/raw'
         if self.api_token:
             broadcast_url += '?token=' + self.api_token
+
+        # decode tx
+        decode_url = self.base_url + '/tx/decode'
+        decode_response = requests.post(decode_url, json={'txhex': hextx})
+        logging.info("Decoded txhex: %s", decode_response.text)
+
         response = requests.post(broadcast_url, json={'txhex': hextx})
         if int(response.status_code) == 201:
             tx_id = response.json().get('tx', None)
@@ -81,7 +87,14 @@ class WhatsOnChainProvider(object):
                 # logging.info('txn: %s', txn)
                 coin_value = txn.get('value')
                 # script = h2b(txn.get('script'))
+
                 script = h2b('')
+                url2 = self.base_url + '/tx/' + txn.get('tx_hash') + '/out/' + str(txn.get('tx_pos')) + '/hex' + url_append
+                response2 = requests.get(url2)
+                # print(">>>>>>>> get the script hex ", url2, response2.text)
+                if int(response.status_code) == 200: 
+                    script = h2b(response2.text)
+
                 previous_hash = h2b_rev(txn.get('tx_hash'))
                 previous_index = txn.get('tx_pos')
                 coin = Spendable(coin_value, script, previous_hash, previous_index)
