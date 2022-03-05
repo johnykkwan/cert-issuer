@@ -30,6 +30,7 @@ class BitcoinSigner(Signer):
         return str(signature, 'utf-8')
 
     def sign_transaction(self, wif, transaction_to_sign):
+        logging.info(">>>>> sign_transactions ", wif)
         secret_exponent = wif_to_secret_exponent(wif, self.allowable_wif_prefixes)
         lookup = build_hash160_lookup([secret_exponent])
         # signed_transaction = transaction_to_sign.sign(lookup)

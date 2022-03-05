@@ -5,11 +5,13 @@ import io
 import logging
 import time
 from abc import abstractmethod
+import bitsv
 
 import bitcoin.rpc
 import requests
 from bitcoin.core import CTransaction
 from cert_core import Chain
+from cert_issuer.errors import InsufficientFundsError, Error
 from pycoin.serialize import b2h, b2h_rev, h2b, h2b_rev
 from pycoin.services import providers
 from pycoin.services.chain_so import ChainSoProvider
@@ -38,157 +40,6 @@ def to_hex(transaction):
     tx_as_hex = b2h(s.getvalue())
     return tx_as_hex
 
-class WhatsOnChainProvider(object):
-    """
-    Note that this needs an API token
-    """
-
-    def __init__(self, base_url, api_token=None):
-        self.base_url = base_url
-        self.api_token = api_token
-
-    def broadcast_tx(self, tx):
-        hextx = to_hex(tx)
-        broadcast_url = self.base_url + '/tx/raw'
-        if self.api_token:
-            broadcast_url += '?token=' + self.api_token
-
-        # decode tx
-        decode_url = self.base_url + '/tx/decode'
-        decode_response = requests.post(decode_url, json={'txhex': hextx})
-        logging.info("Decoded txhex: %s", decode_response.text)
-
-        response = requests.post(broadcast_url, json={'txhex': hextx})
-        if int(response.status_code) == 201:
-            tx_id = response.json().get('tx', None)
-            tx_hash = tx_id.get('hash', None)
-            return tx_hash
-        logging.error('Error broadcasting the transaction through the WOC API. Error msg: %s', response.text)
-        raise BroadcastError(response.text)
-
-    def spendables_for_address(self, address):
-        """
-        Return a list of Spendable objects for the
-        given bitcoin address.
-        https://api.whatsonchain.com/v1/bsv/<main/test>/address/<address>/unspent
-        [{"height":1476535,"tx_pos":0,"tx_hash":"abe71531f26962cfc51f7e5c0ae2af239f346d5cbdbb57285fc7a5f06e10f27e","value":1550},
-        {"height":1476535,"tx_pos":0,"tx_hash":"4058a4c598cbbc7e444780fc9bda09074ba5471d9616b4530acffa08390140a1","value":1550},{"height":1476535,"tx_pos":0,"tx_hash":"5d2ad037404b3d7dac0d3590b779fdf2f4bc6a2c97ce40304c13afed38d986cd","value":1550},{"height":1476535,"tx_pos":0,"tx_hash":"c6a8191b706988908bf39a5aa532caa0f48930aa604ead959b8741649c9eeec7","value":1550},{"height":1476535,"tx_pos":0,"tx_hash":"89d1b1095872fc67c2b00716198699e630eea72a425e52128880d6101b158084","value":1550}]
-        """
-        logging.info('trying to get spendables from WOC')
-        spendables = []
-        url_append = ''
-        if self.api_token:
-            url_append += '&token=' + self.api_token
-        url = self.base_url + '/address/' + address + '/unspent' + url_append
-        response = requests.get(url)
-        if int(response.status_code) == 200:
-            # logging.info('JSON:: %s', response.json())
-            for txn in response.json():
-                # logging.info('txn: %s', txn)
-                coin_value = txn.get('value')
-                # script = h2b(txn.get('script'))
-
-                script = h2b('')
-                url2 = self.base_url + '/tx/' + txn.get('tx_hash') + '/out/' + str(txn.get('tx_pos')) + '/hex' + url_append
-                response2 = requests.get(url2)
-                # print(">>>>>>>> get the script hex ", url2, response2.text)
-                if int(response.status_code) == 200: 
-                    script = h2b(response2.text)
-
-                previous_hash = h2b_rev(txn.get('tx_hash'))
-                previous_index = txn.get('tx_pos')
-                coin = Spendable(coin_value, script, previous_hash, previous_index)
-                # logging.info('Coin:: %s', coin)
-                spendables.append(coin)
-        return spendables
-
-class BlockcypherProvider(object):
-    """
-    Note that this needs an API token
-    """
-
-    def __init__(self, base_url, api_token=None):
-        self.base_url = base_url
-        self.api_token = api_token
-
-    def broadcast_tx(self, tx):
-        hextx = to_hex(tx)
-        broadcast_url = self.base_url + '/txs/push'
-        if self.api_token:
-            broadcast_url += '?token=' + self.api_token
-        response = requests.post(broadcast_url, json={'tx': hextx})
-        if int(response.status_code) == 201:
-            tx_id = response.json().get('tx', None)
-            tx_hash = tx_id.get('hash', None)
-            return tx_hash
-        logging.error('Error broadcasting the transaction through the Blockcypher API. Error msg: %s', response.text)
-        raise BroadcastError(response.text)
-
-    def spendables_for_address(self, address):
-        """
-        Return a list of Spendable objects for the
-        given bitcoin address.
-        """
-        logging.info('trying to get spendables from blockcypher')
-        spendables = []
-        url_append = '?unspentOnly=true&includeScript=true'
-        if self.api_token:
-            url_append += '&token=' + self.api_token
-        url = self.base_url + '/addrs/' + address + url_append
-        response = requests.get(url)
-        if int(response.status_code) == 200:
-            for txn in response.json().get('txrefs', []):
-                coin_value = txn.get('value')
-                script = h2b(txn.get('script'))
-                previous_hash = h2b_rev(txn.get('tx_hash'))
-                previous_index = txn.get('tx_output_n')
-                spendables.append(Spendable(coin_value, script, previous_hash, previous_index))
-        return spendables
-
-class BlockstreamBroadcaster(object):
-    def __init__(self, base_url):
-        self.base_url = base_url
-
-    def broadcast_tx(self, tx):
-        hextx = to_hex(tx)
-        broadcast_url = self.base_url + '/tx'
-        response = requests.post(broadcast_url, data=hextx)
-        if int(response.status_code) == 200:
-            tx_id = response.text
-            return tx_id
-        logging.error('Error broadcasting the transaction through the Blockstream API. Error msg: %s', response.text)
-        raise BroadcastError(response.text)
-
-class BitcoindConnector(object):
-    def __init__(self, netcode):
-        self.netcode = netcode
-
-    def broadcast_tx(self, transaction):
-        as_hex = transaction.as_hex()
-        transaction = CTransaction.deserialize(h2b(as_hex))
-        tx_id = bitcoin.rpc.Proxy().sendrawtransaction(transaction)
-        # reverse endianness for bitcoind
-        return b2h_rev(tx_id)
-
-    def spendables_for_address(self, address):
-        """
-        Converts to pycoin Spendable type
-        :param address:
-        :return: list of Spendables
-        """
-        unspent_outputs = bitcoin.rpc.Proxy().listunspent(addrs=[address])
-        logging.debug('spendables_for_address %s', address)
-
-        spendables = []
-        for unspent in unspent_outputs:
-            coin_value = unspent.get('amount', 0)
-            outpoint = unspent.get('outpoint')
-            script = unspent.get('scriptPubKey')
-            previous_hash = outpoint.hash
-            previous_index = outpoint.n
-            spendables.append(Spendable(coin_value, script, previous_hash, previous_index))
-        return spendables
-
 class ServiceProviderConnector(object):
     @abstractmethod
     def get_balance(self, address):
@@ -196,7 +47,6 @@ class ServiceProviderConnector(object):
 
     def broadcast_tx(self, tx):
         pass
-
 
 class MockServiceProviderConnector(ServiceProviderConnector):
     def get_balance(self, address):
@@ -210,17 +60,9 @@ class BitcoinServiceProviderConnector(ServiceProviderConnector):
     def __init__(self, bitcoin_chain, bitcoind=False):
         self.bitcoin_chain = bitcoin_chain
         self.bitcoind = bitcoind
+        self.network = 'main' if (bitcoin_chain == Chain.bsv_mainnet) else 'test'
 
     def spendables_for_address(self, bitcoin_address):
-        for m in service_provider_methods('spendables_for_address',
-                                          get_providers_for_chain(self.bitcoin_chain, self.bitcoind)):
-            try:
-                logging.debug('m=%s', m)
-                spendables = m(bitcoin_address)
-                return spendables
-            except Exception as e:
-                logging.warning(e)
-                pass
         return []
 
     def get_unspent_outputs(self, address):
@@ -229,111 +71,38 @@ class BitcoinServiceProviderConnector(ServiceProviderConnector):
         :param address:
         :return:
         """
-        logging.debug('get_unspent_outputs for address=%s', address)
-        spendables = self.spendables_for_address(bitcoin_address=address)
-        if spendables:
-            return sorted(spendables, key=lambda x: hash(x.coin_value))
         return None
 
-    def get_balance(self, address):
+    def get_balance(self, issuing_address, secret_manager):
         """
         Get balance available to spend at the address
-        :param address:
-        :return:
         """
-        spendables = self.get_unspent_outputs(address)
-        if not spendables:
-            logging.warning('address %s has a balance of 0', address)
-            return 0
+        secret_manager.start()
+        key = bitsv.Key(secret_manager.wif, self.network)
+        secret_manager.stop()
+        balance = int(key.get_balance())
+        address = key.address
 
-        balance = sum(s.coin_value for s in spendables)
+        if address != issuing_address:
+            error_message = 'Derived {} address is not the same as issuing {} address'.format(
+                address, issuing_address)
+            logging.error(error_message)
+            raise Error(error_message)
+
         return balance
 
-    def broadcast_tx(self, tx):
+    def broadcast_op_return(self, blockchain_bytes, secret_manager):
         """
         Broadcast the transaction through the configured set of providers
-
-        :param tx:
-        :return:
         """
-        return BitcoinServiceProviderConnector.broadcast_tx_with_chain(tx, self.bitcoin_chain, self.bitcoind)
+        secret_manager.start()
+        key = bitsv.Key(secret_manager.wif, self.network)
+        list_of_pushdata = ([blockchain_bytes])
+        txid = key.send_op_return(list_of_pushdata)
+        secret_manager.stop()
 
-    @staticmethod
-    def broadcast_tx_with_chain(tx, bitcoin_chain, bitcoind=False):
-        """
-        Broadcast the transaction through the configured set of providers
-
-        :param tx:
-        :param bitcoin_chain:
-        :return:
-        """
-        last_exception = None
-        final_tx_id = None
-
-        # Unlike other providers, we want to broadcast to all available apis
-        for attempt_number in range(0, MAX_BROADCAST_ATTEMPTS):
-            for method_provider in service_provider_methods('broadcast_tx',
-                                                            get_providers_for_chain(bitcoin_chain, bitcoind)):
-                try:
-                    tx_id = method_provider(tx)
-                    if tx_id:
-                        logging.info('Broadcasting succeeded with method_provider=%s, txid=%s', str(method_provider),
-                                     tx_id)
-                        if final_tx_id and final_tx_id != tx_id:
-                            logging.error(
-                                'This should never happen; fail and investigate if it does. Got conflicting tx_ids=%s and %s. Hextx=%s',
-                                final_tx_id, tx_id, tx.as_hex())
-                            raise Exception('Got conflicting tx_ids.')
-                        final_tx_id = tx_id
-                except Exception as e:
-                    logging.warning('Caught exception trying provider %s. Trying another. Exception=%s',
-                                    str(method_provider), e)
-                    last_exception = e
-            # At least 1 provider succeeded, so return
-            if final_tx_id:
-                return final_tx_id
-            else:
-                logging.warning('Broadcasting failed. Waiting before retrying. This is attempt number %d',
-                                attempt_number)
-                time.sleep(BROADCAST_RETRY_INTERVAL)
-        logging.error('Failed broadcasting through all providers')
-        logging.error(last_exception, exc_info=True)
-        raise BroadcastError(last_exception)
-
+        return txid 
 
 # configure api tokens
 config = cert_issuer.config.CONFIG
 blockcypher_token = None if config is None else config.blockcypher_api_token
-
-PYCOIN_BTC_PROVIDERS = "blockchain.info chain.so"  # blockcypher.com
-PYCOIN_XTN_PROVIDERS = ""  # chain.so
-
-# initialize connectors
-connectors = {}
-
-# configure mainnet providers
-provider_list = providers.providers_for_config_string(PYCOIN_BTC_PROVIDERS,
-                                                      helpers.to_pycoin_chain(Chain.bsv_mainnet))
-
-provider_list.append(WhatsOnChainProvider('https://api.whatsonchain.com/v1/bsv/main', blockcypher_token))
-# provider_list.append(BlockcypherProvider('https://api.blockcypher.com/v1/btc/main', blockcypher_token))
-# provider_list.append(InsightProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_mainnet)))
-# provider_list.append(ChainSoProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_mainnet)))
-# provider_list.append(BlockstreamBroadcaster('https://blockstream.info/api'))
-connectors[Chain.bsv_mainnet] = provider_list
-
-# configure testnet providers
-xtn_provider_list = providers.providers_for_config_string(PYCOIN_XTN_PROVIDERS,
-                                                          helpers.to_pycoin_chain(Chain.bsv_testnet))
-
-xtn_provider_list.append(WhatsOnChainProvider('https://api.whatsonchain.com/v1/bsv/test', blockcypher_token))
-# xtn_provider_list.append(BlockcypherProvider('https://api.blockcypher.com/v1/btc/test3', blockcypher_token))
-# xtn_provider_list.append(ChainSoProvider(netcode=helpers.to_pycoin_chain(Chain.bitcoin_testnet)))
-# xtn_provider_list.append(BlockstreamBroadcaster('https://blockstream.info/testnet/api'))
-connectors[Chain.bsv_testnet] = xtn_provider_list
-
-def get_providers_for_chain(chain, bitcoind=False):
-    if bitcoind:
-        return [BitcoindConnector(helpers.to_pycoin_chain(chain))]
-    else:
-        return connectors[chain]
